@@ -48,3 +48,6 @@ Temporary Items
 
 #IDES
 .idea
+
+#NODE_MODULES
+node_modules

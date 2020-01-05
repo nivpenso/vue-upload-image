@@ -24,6 +24,8 @@
 </template>
 
 <script>
+    import 'exif-js';
+
     export default {
         name: 'upload-image',
         props: {
@@ -86,6 +88,11 @@
                 type: String,
                 required: false,
                 default: 'btn btn-primary'
+            },
+            auto_rotate_enabled: {
+                type: Boolean,
+                required: false,
+                default: false
             }
         },
         data: function () {
@@ -269,28 +276,35 @@
                 reader.addEventListener("load", (e) => {
                     this.$set(this.image, key, reader.result);
 
-                    if (this.resize_enabled) {
+                    // using exif-js to auto rotate the image.
+                    if (this.resize_enabled || this.auto_rotate_enabled) {
                         let imager = new Image();
 
                         imager.onload = () => {
+                            let canvas = document.createElement("canvas");
                             let width = imager.width;
                             let height = imager.height;
-
-                            if (width > this.resize_max_width || height > this.resize_max_height) {
-                                if ((height / width) - (this.resize_max_height / this.resize_max_width) > 0) {
-                                    width = this.resize_max_height / height * width;
-                                    height = this.resize_max_height;
-                                } else {
-                                    height = this.resize_max_width / width * height;
-                                    width = this.resize_max_width;
+                            if (this.resize_enabled) {
+                                if (width > this.resize_max_width || height > this.resize_max_height) {
+                                    if ((height / width) - (this.resize_max_height / this.resize_max_width) > 0) {
+                                        width = this.resize_max_height / height * width;
+                                        height = this.resize_max_height;
+                                    } else {
+                                        height = this.resize_max_width / width * height;
+                                        width = this.resize_max_width;
+                                    }
                                 }
                             }
 
-                            let canvas = document.createElement("canvas");
                             canvas.width = width;
                             canvas.height = height;
 
                             let ctx = canvas.getContext("2d");
+
+                            if (this.auto_rotate_enabled) {
+                                this.rotateImage(this.files[key].file, canvas, ctx);
+                            }
+
                             ctx.drawImage(imager, 0, 0, width, height);
 
                             let newImageData = canvas.toDataURL("image/png");
@@ -319,6 +333,90 @@
                 });
 
                 reader.readAsDataURL(this.files[key].file);
+            },
+            rotateImage: async function(image, canvas, ctx) {
+                // getting the image's exif data
+                const imgEXIFDetails = await this.getEXIFData(image);
+
+                if (!imgEXIFDetails.hasOwnProperty('exifdata')) {
+                    return;
+                }
+
+                this.rotateConvasByOrientation(canvas, ctx, canvas.width, canvas.style.width, canvas.height, canvas.style.height, imgEXIFDetails.exifdata.imgEXIFDetails.exifdata.Orientation);
+                return;
+
+            },
+            /**
+             * @param  canvas
+             * @param  canvasContext
+             * @param  canvasWidth
+             * @param  styleWidth
+             * @param  canvasHeight
+             * @param  styleHeight
+             * @param  orientation
+             */
+            rotateConvasByOrientation: function (canvas, canvasContext, canvasWidth, styleWidth, canvasHeight, styleHeight, orientation) {
+                // Good explanation of EXIF orientation is here http://www.daveperrett.com/articles/2012/07/28/exif-orientation-handling-is-a-ghetto/
+                if (1 < orientation) {
+                    if (orientation > 4) {
+                        // noinspection JSSuspiciousNameCombination
+                        canvas.width = canvasHeight;
+                        // noinspection JSSuspiciousNameCombination
+                        canvas.style.width = styleHeight;
+                        // noinspection JSSuspiciousNameCombination
+                        canvas.height = canvasWidth;
+                        // noinspection JSSuspiciousNameCombination
+                        canvas.style.height = styleWidth;
+                    }
+
+                    switch (orientation) {
+                        case 2:
+                            canvasContext.translate(canvasWidth, 0);
+                            canvasContext.scale(-1, 1);
+                            break;
+                        case 3:
+                            canvasContext.translate(canvasWidth, canvasHeight);
+                            canvasContext.rotate(Math.PI);
+                            break;
+                        case 4:
+                            canvasContext.translate(0, canvasHeight);
+                            canvasContext.scale(1, -1);
+                            break;
+                        case 5:
+                            canvasContext.rotate(0.5 * Math.PI);
+                            canvasContext.scale(1, -1);
+                            break;
+                        case 6:
+                            canvasContext.rotate(0.5 * Math.PI);
+                            canvasContext.translate(0, -canvasHeight);
+                            break;
+                        case 7:
+                            canvasContext.rotate(0.5 * Math.PI);
+                            canvasContext.translate(canvasWidth, -canvasHeight);
+                            canvasContext.scale(-1, 1);
+                            break;
+                        case 8:
+                            canvasContext.rotate(-0.5 * Math.PI);
+                            canvasContext.translate(-canvasWidth, 0);
+                            break;
+                    }
+                }
+            },
+            /**
+             * Promisify implementation to read EXIF data from file.
+             * @param image
+             * @returns {Promise<unknown>}
+             */
+            getEXIFData: function (image) {
+                return new Promise((resolve, reject) => {
+                    EXIF.getData(image, () => {
+                        if (Object.keys(image.exifdata).length === 0) {
+                            reject('exif data found and extracted');
+                            return;
+                        }
+                        resolve(image);
+                    });
+                });
             },
             fileDelete: function (e, key) {
                 this.$emit('upload-image-removed', this.files[key]);

@@ -31,6 +31,6 @@
   },
   "homepage": "https://github.com/viral-vector/vue-upload-image",
   "dependencies": {
-        
+    "exif-js": "^2.3.0"
   }
 }
